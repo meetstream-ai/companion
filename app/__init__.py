@@ -1,0 +1,3 @@
+"""
+Meet Companion application package.
+"""

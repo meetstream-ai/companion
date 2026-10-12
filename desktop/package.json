@@ -1,0 +1,60 @@
+{
+  "name": "meet-companion",
+  "productName": "Meet Companion",
+  "version": "0.5.4",
+  "description": "Make meeting data smarter. Open-source meeting memory, notebook and AI assistant built on MeetStream.",
+  "main": "main.js",
+  "private": true,
+  "license": "MIT",
+  "author": "Meet Companion contributors",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.meetcompanion.app",
+    "productName": "Meet Companion",
+    "artifactName": "MeetCompanion-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "files": ["main.js", "preload.js", "server-log.js", "package.json"],
+    "extraResources": [
+      {
+        "from": "build/meet-companion-server",
+        "to": "server",
+        "filter": ["**/*"]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build-resources/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "MeetCompanion-Windows-Setup.${ext}"
+    },
+    "mac": {
+      "target": [{ "target": "dmg" }],
+      "icon": "build-resources/icon.png",
+      "category": "public.app-category.productivity",
+      "artifactName": "MeetCompanion-macOS-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "icon": "build-resources/icon.png",
+      "category": "Office",
+      "artifactName": "MeetCompanion-Linux-${arch}.${ext}"
+    }
+  }
+}

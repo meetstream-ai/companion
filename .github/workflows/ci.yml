@@ -1,0 +1,94 @@
+name: CI
+
+# The test suite runs against both supported databases. SQLite is the
+# default and needs nothing; the Postgres job uses a pgvector service
+# container, so the Postgres search backend, the vector indexes and the
+# schema patches are exercised on every push without anyone needing
+# credentials to a hosted database.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
+    services:
+      postgres:
+        # Only used by the postgres matrix entry; harmless for sqlite.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: meet_companion_test
+          POSTGRES_USER: meet
+          POSTGRES_PASSWORD: meet
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U meet -d meet_companion_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Audit dependencies for known vulnerabilities
+        if: matrix.database == 'sqlite'
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --progress-spinner off
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: ${{ matrix.database == 'postgres' && 'postgresql+asyncpg://meet:meet@localhost:5432/meet_companion_test' || '' }}
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+
+  desktop:
+    name: Desktop shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Node's built-in runner: the shell's own modules, no Electron needed.
+      - run: node --test desktop/tests/*.test.js
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t meet-companion:ci .
+      - name: Boot and probe /health
+        run: |
+          docker run -d --name mc -p 8000:8000 meet-companion:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs mc
+          exit 1

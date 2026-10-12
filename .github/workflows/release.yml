@@ -1,0 +1,129 @@
+name: Release
+
+# Pushing a tag like v1.2.0 builds the desktop app for Windows, macOS and
+# Linux on their native runners and attaches the installers to a GitHub
+# Release. The workflow can also be run by hand to produce build artifacts
+# without publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            target: --win
+          # One macOS job per chip. The server (PyInstaller) and cloudflared
+          # are native binaries built for the machine that builds them: a
+          # single Apple Silicon job used to put its arm64 server into the
+          # Intel .dmg too, which could not start on an Intel Mac.
+          - os: macos-latest
+            label: macOS Apple Silicon
+            target: --mac --arm64
+          - os: macos-15-intel
+            label: macOS Intel
+            target: --mac --x64
+          - os: ubuntu-latest
+            label: Linux
+            target: --linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Stamp version from the tag
+        # The tag is the single source of truth: a v1.2.3 tag produces
+        # installers, an app and an API that all report 1.2.3. Manual runs
+        # keep whatever is committed.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: python scripts/stamp_version.py "${GITHUB_REF_NAME#v}"
+
+      - name: Build web UI
+        working-directory: frontend
+        # bash on every runner (including Windows) so the retry wrapper behaves
+        # the same everywhere.
+        shell: bash
+        run: |
+          bash ../scripts/retry.sh npm ci
+          npm run build
+
+      - name: Freeze server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          python scripts/fetch_embedding_model.py desktop/models
+          python scripts/fetch_cloudflared.py desktop/bin
+          pyinstaller desktop/server.spec --noconfirm --distpath desktop/build --workpath desktop/work
+
+      - name: Package desktop app
+        # npm ci here runs Electron's postinstall, which downloads the Electron
+        # binary with its own HTTP client - npm's fetch-retries does not cover
+        # it, and one 504 from that CDN failed a whole release. Retried.
+        working-directory: desktop
+        env:
+          # Unsigned builds: no certificates are configured. Signing can be
+          # added later with CSC_LINK / CSC_KEY_PASSWORD secrets.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        shell: bash
+        run: |
+          bash ../scripts/retry.sh npm ci
+          bash ../scripts/retry.sh npx electron-builder ${{ matrix.target }} --publish never
+          # Each macOS job must produce only its own chip's .dmg: the two jobs'
+          # files share names, and a second copy from the wrong machine would
+          # overwrite the right one when the release is assembled.
+          if [[ "${{ matrix.target }}" == *--mac* ]]; then
+            dmgs=$(ls release/*.dmg)
+            [ "$(echo "$dmgs" | wc -l)" -eq 1 ] || { echo "Expected one .dmg, got: $dmgs"; exit 1; }
+            echo "Built $dmgs"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MeetCompanion-${{ matrix.label }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.AppImage
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.exe
+            artifacts/*.dmg
+            artifacts/*.AppImage
+          generate_release_notes: true

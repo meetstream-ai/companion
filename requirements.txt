@@ -1,0 +1,54 @@
+# ============================================================
+# Meet Companion — Python Dependencies
+# ============================================================
+
+# ---- Web Framework ----
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.34.3
+python-multipart==0.0.32
+
+# ---- Database ----
+# SQLite is the zero-setup default; the Postgres drivers and pgvector are only
+# exercised when DATABASE_URL points at Postgres.
+sqlalchemy[asyncio]==2.0.41
+alembic==1.20.0
+aiosqlite==0.21.0
+asyncpg==0.31.0
+pgvector==0.3.6
+
+# ---- Embeddings & RAG ----
+# ONNX build of all-MiniLM-L6-v2: identical vectors to the PyTorch model,
+# without the multi-gigabyte torch dependency (see app/services/embedding.py).
+fastembed==0.8.0
+# fastembed pulls pillow; pinned explicitly so security bumps are visible here
+pillow==12.3.0
+langchain-text-splitters==1.1.2
+numpy>=1.26.0
+
+# ---- LLM ----
+# No vendor SDKs: every provider (OpenAI, Anthropic, Gemini, Ollama, Groq and
+# any OpenAI-compatible endpoint) is implemented over httpx in
+# app/providers/llm, which keeps the dependency surface small and makes
+# adding a provider a code change rather than a dependency change.
+
+# ---- Documents ----
+pypdf==6.19.0
+
+# ---- HTTP Client ----
+httpx==0.28.1
+
+# ---- Configuration ----
+pydantic==2.11.4
+pydantic-settings==2.9.1
+python-dotenv==1.2.3
+
+# ---- Security ----
+# passlib removed: unmaintained since 2020 and its bcrypt backend detection
+# breaks against bcrypt 4.1+. app/security.py uses bcrypt directly.
+bcrypt==4.2.1
+
+# ---- Testing ----
+pytest==9.0.3
+pytest-asyncio==1.4.0
+pytest-httpx==0.36.2

@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings. The release workflow runs them through
+# bash on the Windows runner too, and bash fails on CRLF with a confusing
+# "$'\r': command not found".
+*.sh text eol=lf

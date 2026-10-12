@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Local runtime data: the SQLite database and config.json, which holds the
+# API keys entered during onboarding. Never commit these.
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker
+pgdata/
+
+# Model cache (root-level only - a bare "models/" here also matched app/models/,
+# our actual ORM models and schemas package, silently excluding it from every
+# commit since this repo's first commit)
+/models/
+*.bin
+*.onnx
+
+# Logs
+*.log
+logs/
+
+# Test
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Artifacts
+*.faiss
+*.pkl
+vector_store/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Downloaded tools (fetched, not source)
+.tools/
+
+# Local tool configuration
+.claude/
+.cloudflared*.log
+.tmp/
+desktop/models/
+desktop/bin/

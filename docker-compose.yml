@@ -1,0 +1,51 @@
+# Meet Companion with Docker.
+#
+#   docker compose up -d            # app on http://localhost:8000, SQLite in a volume
+#   docker compose --profile postgres up -d
+#                                   # same, plus a pgvector Postgres the app is pointed at
+#
+# The first visit walks through onboarding. Configuration saved there lives
+# in the `data` volume together with the database and the embedding model.
+
+services:
+  app:
+    build: .
+    container_name: meet_companion
+    ports:
+      - "8000:8000"
+    volumes:
+      - data:/data
+    environment:
+      # Set these to skip onboarding and run fully declaratively:
+      # LLM_PROVIDER: openai
+      # LLM_API_KEY: ${LLM_API_KEY}
+      # MEETSTREAM_API_KEY: ${MEETSTREAM_API_KEY}
+      # MEETSTREAM_WEBHOOK_SECRET: ${MEETSTREAM_WEBHOOK_SECRET}
+      # SESSION_SECRET: ${SESSION_SECRET}
+      # Public URL MeetStream can reach for webhooks and MCP (see README):
+      # MCP_SERVER_URL: https://companion.example.com/mcp
+      CORS_ORIGINS: '["http://localhost:8000"]'
+    restart: unless-stopped
+
+  postgres:
+    profiles: ["postgres"]
+    image: pgvector/pgvector:pg17
+    container_name: meet_companion_db
+    environment:
+      POSTGRES_DB: meet_companion
+      POSTGRES_USER: meet
+      POSTGRES_PASSWORD: meet_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meet -d meet_companion"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  data:
+  pgdata:
