@@ -504,6 +504,10 @@ async def _carry_account_over(snapshot: Dict[str, Any]) -> Optional[uuid.UUID]:
         db.add(user)
         await db.flush()
         db.add(Membership(user_id=user.id, organization_id=org.id, role=OWNER))
+        # The first account on this database: it administers the server here.
+        from app.api.deps import pin_admin_workspace
+
+        await pin_admin_workspace(db, org.id)
         await db.commit()
         logger.info("Carried account %s over to the new database as owner of '%s'", snapshot["email"], snapshot["workspace"])
         return user.id

@@ -21,8 +21,8 @@ from app.database.connection import get_db
 from app.models.database import Membership, Organization, User
 from app.middleware.auth_gate import COOKIE_NAME, decode_session
 from app.api.deps import (
-    OWNER, get_current_account, get_current_org_id, get_current_user, is_instance_admin, is_owner,
-    require_active_membership, require_owner,
+    OWNER, get_current_account, get_current_org_id, get_current_user, is_instance_admin,
+    is_owner, pin_admin_workspace, require_active_membership, require_owner,
 )
 from app import permissions as perms
 from app.config import settings
@@ -507,7 +507,8 @@ async def add_member(body: CreateMemberRequest, request: Request, db: AsyncSessi
         # Self-signup - must explicitly create a new workspace or join one by code.
         # A deployment can switch that off; the very first account is always
         # allowed, or nobody could ever sign in.
-        if not settings.ALLOW_SELF_SIGNUP and (await db.execute(select(func.count(User.id)))).scalar_one() > 0:
+        first_account = (await db.execute(select(func.count(User.id)))).scalar_one() == 0
+        if not settings.ALLOW_SELF_SIGNUP and not first_account:
             raise HTTPException(
                 status_code=403,
                 detail="Self-signup is switched off on this server. Ask a workspace owner to add you from their Members page.",
@@ -522,6 +523,9 @@ async def add_member(body: CreateMemberRequest, request: Request, db: AsyncSessi
             org_id = org.id
             # Whoever creates a workspace owns it.
             role = OWNER
+            if first_account:
+                # The install's own team: its owners administer the server.
+                await pin_admin_workspace(db, org_id)
         else:
             result = await db.execute(select(Organization.id).where(Organization.join_code == body.join_code.strip()))
             org_id = result.scalar_one_or_none()

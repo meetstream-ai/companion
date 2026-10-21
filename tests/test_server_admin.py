@@ -7,7 +7,10 @@ another host, switch the database, reset the install, edit the agent
 template. The administrator is the owner of the first workspace; everyone
 else runs only their own workspace.
 """
+import uuid
+
 import pytest
+from sqlalchemy import select
 
 from app.config import settings
 from tests.test_security import _client, _fresh_rate_limits, _signup  # noqa: F401
@@ -115,6 +118,84 @@ async def test_with_self_signup_off_only_the_administrator_can_start_a_workspace
         monkeypatch.setattr(settings, "ALLOW_SELF_SIGNUP", True)
         r = await stranger.post("/api/members/workspaces", json={"name": "Another one", "activate": False})
         assert r.status_code == 200, r.text
+
+
+# ---------------------------------------------------------------------------
+# The admin workspace is recorded once and never moves on
+# ---------------------------------------------------------------------------
+
+async def _recorded():
+    from app.api.deps import ADMIN_WORKSPACE_KEY
+    from app.database.connection import AsyncSessionLocal
+    from app.models.database import Organization
+
+    async with AsyncSessionLocal() as db:
+        holder = await db.get(Organization, uuid.UUID(settings.DEFAULT_ORG_ID))
+        return (holder.settings or {}).get(ADMIN_WORKSPACE_KEY)
+
+
+async def _workspace_id(client):
+    return next(w["id"] for w in (await client.get("/api/members/workspaces")).json()["workspaces"] if w["is_active"])
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_install_records_the_first_workspace_at_sign_up():
+    async with _client() as admin, _client() as stranger:
+        assert await _recorded() is None
+        await _signup(admin, "pin-first@example.com", workspace="Home team")
+        # Recorded by the sign-up itself, before anyone asked who the admin is.
+        assert await _recorded() == await _workspace_id(admin)
+        await _signup(stranger, "pin-later@example.com", workspace="Later Co")
+        assert await _recorded() == await _workspace_id(admin)
+
+
+@pytest.mark.asyncio
+async def test_an_existing_install_is_pinned_lazily_to_the_same_admin(authed_client):
+    """authed_client writes rows directly, like an install from before the record existed."""
+    assert await _recorded() is None
+    async with _client() as stranger:
+        # The first check (the stranger's own sign-in) pins it by the old rule.
+        await _signup(stranger, "pin-stranger@example.com", workspace="Stranger Co")
+        assert await _recorded() == settings.DEFAULT_ORG_ID
+        assert (await authed_client.get("/api/auth/check")).json()["member"]["can_manage_server"] is True
+        assert (await stranger.get("/api/auth/check")).json()["member"]["can_manage_server"] is False
+        assert (await authed_client.get("/api/auth/check")).json()["member"]["can_manage_server"] is True
+
+
+@pytest.mark.asyncio
+async def test_with_no_active_owner_left_the_role_does_not_move_to_a_later_workspace():
+    from app.database.connection import AsyncSessionLocal
+    from app.models.database import User
+
+    async with _client() as admin, _client() as stranger:
+        await _signup(admin, "pin-gone@example.com", workspace="Home team")
+        await _signup(stranger, "pin-next@example.com", workspace="Next in line")
+        async with AsyncSessionLocal() as db:
+            me = (await db.execute(select(User).where(User.email == "pin-gone@example.com"))).scalar_one()
+            me.is_active = False
+            await db.commit()
+
+        # The stranger now owns the oldest workspace with an active owner.
+        assert (await stranger.get("/api/auth/check")).json()["member"]["can_manage_server"] is False
+        r = await stranger.post("/api/setup/complete", json={"meetstream": {"base_url": "https://attacker.example"}})
+        assert r.status_code == 403, r.text
+        assert (await stranger.put("/api/agent/template", json={"system_prompt": "x"})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_original_workspace_leaves_no_admin_even_after_a_restart(authed_client):
+    from app.database.bootstrap import bootstrap
+    from app.database.connection import current_engine
+
+    async with _client() as stranger:
+        await _signup(stranger, "pin-del@example.com", workspace="Stranger Co")
+        assert (await authed_client.get("/api/auth/check")).json()["member"]["can_manage_server"] is True
+        await authed_client.post("/api/members/workspaces", json={"name": "Keeper", "activate": False})
+        assert (await authed_client.delete("/api/members/workspace")).status_code == 200
+
+        await bootstrap(current_engine())  # recreates the default workspace, as a restart does
+        for c in (authed_client, stranger):
+            assert (await c.get("/api/auth/check")).json()["member"]["can_manage_server"] is False
 
 
 # ---------------------------------------------------------------------------

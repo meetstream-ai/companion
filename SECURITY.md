@@ -25,7 +25,14 @@ boundaries before exposing an instance beyond localhost:
 - **Server-wide settings belong to the instance admin.** The instance admin
   is an owner of the first workspace on the server. The AI provider, the
   database, the MeetStream credentials, the tunnel and the agent template are
-  server-wide settings. Only the instance admin can change them.
+  server-wide settings. Only the instance admin can change them. The server
+  records the first workspace once. The role never moves to another
+  workspace. If that workspace has no active owner left, or is deleted,
+  nobody is instance admin. To recover, re-activate or promote an owner of
+  that workspace. Or remove the `instance_admin_org_id` key by hand from the
+  `settings` of the default workspace row (id
+  `00000000-0000-0000-0000-000000000001`) in the database. The next check
+  then records the oldest workspace that has an active owner.
 - **Workspace owners manage only their own workspace.** The person who creates
   a workspace is its owner and can promote others. An owner of a later
   workspace cannot change server-wide settings.

@@ -343,7 +343,8 @@ async def ensure_default_workspace(engine: AsyncEngine) -> None:
     every request resolves through an organization. Creating it here is what
     lets the application come up usable on first run without a seeding script.
     """
-    from app.models.database import Organization
+    from app.api.deps import ADMIN_WORKSPACE_KEY
+    from app.models.database import Organization, User
 
     factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
@@ -353,12 +354,17 @@ async def ensure_default_workspace(engine: AsyncEngine) -> None:
         ).scalar_one_or_none()
 
         if existing is None:
+            # Accounts but no default workspace: its owner deleted it, and with
+            # it the record of which workspace administers the server. Record
+            # "none" rather than let the next check pin whichever workspace is
+            # oldest now (see app.api.deps.admin_workspace_id).
+            has_accounts = (await session.execute(select(User.id).limit(1))).scalar_one_or_none() is not None
             session.add(
                 Organization(
                     id=org_id,
                     name="My Workspace",
                     slug="default",
-                    settings={},
+                    settings={ADMIN_WORKSPACE_KEY: "none"} if has_accounts else {},
                     mcp_token=configured_mcp_token() or secrets.token_urlsafe(32),
                     join_code=secrets.token_hex(4),
                 )
