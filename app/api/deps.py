@@ -116,11 +116,26 @@ async def _oldest_owned_workspace(db: AsyncSession) -> "uuid.UUID | None":
 
 
 async def pin_admin_workspace(db: AsyncSession, org_id: uuid.UUID) -> None:
-    """Record org_id as the admin workspace. The caller commits."""
-    holder = await db.get(Organization, _default_org_id())
-    if holder is not None:
-        # Reassign rather than mutate: the JSON column only notices a new value.
-        holder.settings = {**(holder.settings or {}), ADMIN_WORKSPACE_KEY: str(org_id)}
+    """
+    Record org_id as the admin workspace, unless one is already recorded.
+    The caller commits.
+
+    First writer wins: two first sign-ups racing must not leave the last one
+    as administrator. The row lock makes the second wait and then see the
+    first one's value on Postgres; SQLite has a single writer and ignores it.
+    """
+    holder = (
+        await db.execute(
+            select(Organization)
+            .where(Organization.id == _default_org_id())
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if holder is None or (holder.settings or {}).get(ADMIN_WORKSPACE_KEY):
+        return
+    # Reassign rather than mutate: the JSON column only notices a new value.
+    holder.settings = {**(holder.settings or {}), ADMIN_WORKSPACE_KEY: str(org_id)}
 
 
 async def admin_workspace_id(db: AsyncSession) -> "uuid.UUID | None":

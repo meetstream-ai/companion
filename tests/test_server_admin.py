@@ -150,6 +150,22 @@ async def test_a_fresh_install_records_the_first_workspace_at_sign_up():
 
 
 @pytest.mark.asyncio
+async def test_a_recorded_admin_workspace_is_never_overwritten():
+    """Two first sign-ups racing: whichever records first stays the admin workspace."""
+    from app.api.deps import pin_admin_workspace
+    from app.database.connection import AsyncSessionLocal
+
+    first, second = uuid.uuid4(), uuid.uuid4()
+    async with AsyncSessionLocal() as db:
+        await pin_admin_workspace(db, first)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await pin_admin_workspace(db, second)
+        await db.commit()
+    assert await _recorded() == str(first)
+
+
+@pytest.mark.asyncio
 async def test_an_existing_install_is_pinned_lazily_to_the_same_admin(authed_client):
     """authed_client writes rows directly, like an install from before the record existed."""
     assert await _recorded() is None
