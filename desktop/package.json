@@ -15,8 +15,8 @@
     "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "dev.meetcompanion.app",
@@ -26,17 +26,32 @@
       "output": "release",
       "buildResources": "build-resources"
     },
-    "files": ["main.js", "preload.js", "server-log.js", "navigation.js", "package.json"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "server-log.js",
+      "navigation.js",
+      "package.json"
+    ],
     "extraResources": [
       {
         "from": "build/meet-companion-server",
         "to": "server",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asar": true,
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build-resources/icon.png"
     },
     "nsis": {
@@ -45,13 +60,24 @@
       "artifactName": "MeetCompanion-Windows-Setup.${ext}"
     },
     "mac": {
-      "target": [{ "target": "dmg" }],
+      "target": [
+        {
+          "target": "dmg"
+        }
+      ],
       "icon": "build-resources/icon.png",
       "category": "public.app-category.productivity",
       "artifactName": "MeetCompanion-macOS-${arch}.${ext}"
     },
     "linux": {
-      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build-resources/icon.png",
       "category": "Office",
       "artifactName": "MeetCompanion-Linux-${arch}.${ext}"
