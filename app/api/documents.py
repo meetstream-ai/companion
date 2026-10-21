@@ -24,6 +24,8 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"}
 
 #: Documents are read fully into memory before extraction.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+#: A .docx is a zip: its text part is checked uncompressed, before it is read.
+MAX_DOCX_XML_BYTES = 50 * 1024 * 1024
 
 
 def _docx_text(content_bytes: bytes) -> str:
@@ -33,7 +35,16 @@ def _docx_text(content_bytes: bytes) -> str:
     import zipfile
 
     with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
-        xml = archive.read("word/document.xml").decode("utf-8", errors="ignore")
+        # A few MB of zip can expand to gigabytes; the size it declares is
+        # checked first, and the read stops there even if it lied.
+        info = archive.getinfo("word/document.xml")
+        if info.file_size > MAX_DOCX_XML_BYTES:
+            raise HTTPException(status_code=413, detail="That .docx file is too large to read.")
+        with archive.open(info) as part:
+            raw = part.read(MAX_DOCX_XML_BYTES + 1)
+        if len(raw) > MAX_DOCX_XML_BYTES:
+            raise HTTPException(status_code=413, detail="That .docx file is too large to read.")
+        xml = raw.decode("utf-8", errors="ignore")
     xml = re.sub(r"</w:p>", "\n", xml)
     return re.sub(r"<[^>]+>", "", xml)
 
@@ -79,6 +90,8 @@ async def upload_company_document(
     elif ext == ".docx":
         try:
             text_content = _docx_text(content_bytes)
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=400, detail="Could not read that .docx file.")
 

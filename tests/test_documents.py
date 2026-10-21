@@ -96,3 +96,20 @@ async def test_upload_keeps_only_the_base_name(authed_client):
     )
     assert r.status_code == 202, r.text
     assert r.json()["filename"] == "evil.txt"
+
+
+@pytest.mark.asyncio
+async def test_a_docx_that_expands_past_the_cap_is_refused_before_it_is_read(authed_client, monkeypatch):
+    """A small zip can declare (and inflate to) gigabytes of XML."""
+    import app.api.documents as documents
+
+    monkeypatch.setattr(documents, "MAX_DOCX_XML_BYTES", 1024)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", "<w:t>" + "a" * 200_000 + "</w:t>")
+    assert len(buf.getvalue()) < 5_000  # compresses to almost nothing
+    r = await authed_client.post("/api/documents/upload", files={"file": ("bomb.docx", buf.getvalue(), "application/octet-stream")})
+    assert r.status_code == 413, r.text
+    # An ordinary one still goes through.
+    ok = await authed_client.post("/api/documents/upload", files={"file": ("ok.docx", _docx("fine words here"), "application/octet-stream")})
+    assert ok.status_code == 202, ok.text

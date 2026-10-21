@@ -608,3 +608,45 @@ async def test_state_changing_requests_from_another_site_are_refused(monkeypatch
         assert (await proxied.post("/api/auth/login", json=body, headers=headers)).status_code == 403
         monkeypatch.setattr(settings, "TRUST_PROXY", True)
         assert (await proxied.post("/api/auth/login", json=body, headers=headers)).status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# What the unauthenticated and logged surfaces give away
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_readiness_does_not_return_database_error_text(client):
+    from app.database.connection import get_db
+
+    class _Broken:
+        class bind:
+            class dialect:
+                name = "postgresql"
+
+        async def execute(self, *_args, **_kwargs):
+            raise RuntimeError('password authentication failed for user "secretuser" at db.internal')
+
+    async def broken_db():
+        yield _Broken()
+
+    app.dependency_overrides[get_db] = broken_db
+    try:
+        r = await client.get("/health/ready")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    assert r.status_code == 200 and r.json()["database"] == "disconnected"
+    assert "secretuser" not in r.text and "db.internal" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_arguments_are_not_logged_at_info(client, caplog):
+    import logging
+
+    headers = {"Authorization": f"Bearer {settings.MCP_AUTH_TOKEN}"}
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+               "params": {"name": "search_meeting_memory", "arguments": {"query": "CONFIDENTIAL-merger-plan"}}}
+    with caplog.at_level(logging.INFO, logger="app.mcp.server"):
+        assert (await client.post("/mcp", json=payload, headers=headers)).status_code == 200
+    info = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO and r.name == "app.mcp.server"]
+    assert any("search_meeting_memory" in m for m in info)
+    assert not any("CONFIDENTIAL" in m for m in info)

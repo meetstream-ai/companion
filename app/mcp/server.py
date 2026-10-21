@@ -82,7 +82,9 @@ async def handle_mcp_jsonrpc(
         # The only trace a live voice agent leaves of *using* memory - the
         # access log shows anonymous "POST /mcp 200" lines for every
         # initialize/tools-list round-trip as well.
-        logger.info(f"mcp tools/call org={org_id} tool={tool_name} args={arguments}")
+        # Arguments carry meeting content (note text, action items): DEBUG only.
+        logger.info(f"mcp tools/call org={org_id} tool={tool_name}")
+        logger.debug(f"mcp tools/call tool={tool_name} args={arguments}")
         started = time.monotonic()
         try:
             tool_output = await execute_tool(org_id, tool_name, arguments)
