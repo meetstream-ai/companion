@@ -301,6 +301,38 @@ async def regenerate_join_code(
     raise HTTPException(status_code=409, detail="Could not allocate a join code; please try again.")
 
 
+@router.post("/workspace/mcp-token")
+async def rotate_mcp_token(
+    owner: User = Depends(require_owner), db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Issue a new MCP token for this workspace, retiring the old one. Owner-only.
+
+    The token is written into every member's agent at MeetStream, so a
+    removed member may still hold a copy that reads and writes this
+    workspace's memory through /mcp. This is how to cut that off: the old
+    token stops working the moment this returns.
+
+    Agents are not rewired here. Each member's own agent gets the new token
+    the next time they launch a bot or activate an agent (both run
+    ensure_mcp_wired with their own MeetStream key). Until then, an agent
+    used in a call started outside this app cannot reach memory.
+    """
+    org = await perms.load_org(owner.organization_id, db)
+    if not org:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    for _ in range(5):
+        token = _new_token()
+        taken = (
+            await db.execute(select(Organization.id).where(Organization.mcp_token == token))
+        ).scalar_one_or_none()
+        if not taken:
+            org.mcp_token = token
+            await db.commit()
+            return {"rotated": True}
+    raise HTTPException(status_code=409, detail="Could not allocate a token; please try again.")
+
+
 @router.delete("/workspace")
 async def delete_workspace(
     owner: User = Depends(require_owner), db: AsyncSession = Depends(get_db)

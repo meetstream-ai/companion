@@ -654,11 +654,12 @@ async def update_current_agent(body: AgentUpdateRequest, user: User = Depends(ge
         current_agent["mcp_servers"] = mcp_servers
 
     try:
-        return await meetstream_client.update_mia_agent_settings(
+        # MeetStream echoes the agent back, MCP bearer token included.
+        return _redact_secrets(await meetstream_client.update_mia_agent_settings(
             agent_config_id=agent_config_id,
             agent=current_agent,
             model=current_model,
             api_key=own_key,
-        )
+        ))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"MeetStream API error: {e}")

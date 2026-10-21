@@ -137,3 +137,50 @@ async def test_a_pending_member_cannot_add_members_even_when_members_may_invite(
         assert r.status_code == 403, r.text
         listing = (await owner.get("/api/members")).json()
         assert all(m["email"] != "sa-smuggled@example.com" for m in listing["members"] + listing["pending"])
+
+
+# ---------------------------------------------------------------------------
+# M4: the workspace MCP token can be rotated, and is never echoed back
+# ---------------------------------------------------------------------------
+
+async def _mcp_token(org_name):
+    from sqlalchemy import select
+
+    from app.database.connection import AsyncSessionLocal
+    from app.models.database import Organization
+
+    async with AsyncSessionLocal() as db:
+        return (await db.execute(select(Organization.mcp_token).where(Organization.name == org_name))).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_an_owner_can_rotate_the_mcp_token_and_the_old_one_stops_working():
+    owner, member = _client(), _client()
+    async with owner, member:
+        await _signup(owner, "sa-rot@example.com", workspace="Rotating")
+        code = (await owner.get("/api/members/workspace")).json()["join_code"]
+        await _signup(member, "sa-rot-m@example.com", join_code=code, approve_by=owner)
+        old = await _mcp_token("Rotating")
+
+        assert (await member.post("/api/members/workspace/mcp-token")).status_code == 403
+        r = await owner.post("/api/members/workspace/mcp-token")
+        assert r.status_code == 200 and old not in r.text and r.json() == {"rotated": True}
+
+        new = await _mcp_token("Rotating")
+        assert new and new != old
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        assert (await owner.post("/mcp", json=payload, headers={"Authorization": f"Bearer {old}"})).status_code == 403
+        assert (await owner.post("/mcp", json=payload, headers={"Authorization": f"Bearer {new}"})).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_saving_an_agent_never_returns_the_mcp_token(authed_client, monkeypatch):
+    from tests.test_agent_mode import _member_with_agent
+
+    state = await _member_with_agent(authed_client, monkeypatch)
+    state["config"]["agent_config"]["Agent"]["mcp_servers"] = [
+        {"url": "https://x.example/mcp", "headers": {"Authorization": "Bearer live-workspace-token"}}
+    ]
+    r = await authed_client.put("/api/agent", json={"first_message": "Hi"})
+    assert r.status_code == 200, r.text
+    assert "live-workspace-token" not in r.text
