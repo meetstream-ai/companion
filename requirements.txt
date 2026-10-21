@@ -25,7 +25,7 @@ fastembed==0.8.0
 # Held at 12.x: fastembed (0.8 and 0.9) requires pillow<13. The app only embeds
 # text and never decodes images, so the 12.x image-decoding advisories ignored
 # in ci.yml are not reachable. Move to 13.x as soon as fastembed allows it.
-pillow==12.3.0
+pillow==13.0.0
 langchain-text-splitters==1.1.2
 numpy>=1.26.0
 
