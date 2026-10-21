@@ -22,15 +22,19 @@ notes unless you prefer otherwise.
 Meet Companion is designed to be self-hosted by one team. Understand these
 boundaries before exposing an instance beyond localhost:
 
-- **Workspace owners are trusted with the whole server.** The AI provider,
-  database, MeetStream credentials and the agent template are server-wide
-  settings; changing them requires the `owner` role. The person who creates a
-  workspace is its owner and can promote others.
+- **Server-wide settings belong to the instance admin.** The instance admin
+  is an owner of the first workspace on the server. The AI provider, the
+  database, the MeetStream credentials, the tunnel and the agent template are
+  server-wide settings. Only the instance admin can change them.
+- **Workspace owners manage only their own workspace.** The person who creates
+  a workspace is its owner and can promote others. An owner of a later
+  workspace cannot change server-wide settings.
 - **Members of a workspace see all of that workspace's meetings, notes and
   action items.** There is no per-note sharing.
 - **Anyone who can reach the server can create a new workspace** (sign-up is
   open) unless you put it behind your own authentication proxy. A new workspace
-  never sees another workspace's data.
+  never sees another workspace's data. With `ALLOW_SELF_SIGNUP=false`, only the
+  instance admin can create more workspaces.
 - **The in-call voice agent has write tools** (add notes, create and update
   action items) scoped to its workspace, driven by what is said in the meeting.
   Treat what participants say as untrusted input to those tools - or switch
@@ -51,3 +55,20 @@ boundaries before exposing an instance beyond localhost:
 - Behind a reverse proxy, set `TRUST_PROXY=true` so rate limiting sees real
   client addresses; never set it when clients connect directly.
 - Leave `API_DOCS` off in production (the default outside development).
+
+## Known limitations and hardening
+
+Do these things when you expose an instance beyond localhost:
+
+- Set a webhook secret when you use the tunnel or a public URL. Without a
+  secret, the server accepts unsigned webhook deliveries for bots that it
+  launched.
+- Put the server behind a reverse proxy that allows only your own host names.
+  The server does not check the `Host` header itself.
+- The server refuses a POST, PUT, PATCH or DELETE from a browser page on a
+  different site. It compares the `Origin` header with the `Host` header. Your
+  proxy must pass the original `Host` through. Or set `TRUST_PROXY=true` and
+  send `X-Forwarded-Host`. If your UI is on a different origin, add that
+  origin to `CORS_ORIGINS`.
+- Set `APP_ENV=production` to hide `/docs` and `/openapi.json`. The default
+  outside Docker is `development`, which shows them.
