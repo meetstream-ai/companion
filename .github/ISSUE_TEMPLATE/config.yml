@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/meetstream-ai/companion/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
+  - name: MeetStream API questions
+    url: https://docs.meetstream.ai
+    about: Questions about bots, transcripts or API keys belong to the MeetStream docs.

@@ -335,7 +335,7 @@ async def test_unknown_api_path_is_a_json_404_not_the_app_shell(authed_client):
 
 
 @pytest.mark.asyncio
-async def test_switching_to_an_empty_database_carries_the_owner_over(authed_client, tmp_path, monkeypatch):
+async def test_switching_to_an_empty_database_carries_the_owner_over(tmp_path, monkeypatch):
     """
     Seen live: an owner switched their app to a fresh Postgres and was
     shown the sign-in page - their own password "incorrect", because the
@@ -351,7 +351,9 @@ async def test_switching_to_an_empty_database_carries_the_owner_over(authed_clie
     old_url = current_url()
     new_url = f"sqlite+aiosqlite:///{(tmp_path / 'fresh.db').as_posix()}"
     authed_client = _client()
-    await _signup(authed_client, "switcher@example.com", workspace="Switchers Inc")  # a real owner with a password
+    # A real owner with a password, and the server administrator: the only
+    # owner on this install, so theirs is the first workspace.
+    await _signup(authed_client, "switcher@example.com", workspace="Switchers Inc")
     me_before = (await authed_client.get("/api/auth/check")).json()["member"]
     try:
         r = await authed_client.post("/api/setup/complete", json={"database": {"url": new_url}})

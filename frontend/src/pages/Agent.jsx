@@ -16,7 +16,7 @@ import {
   updateAgent,
   updateAgentTemplate,
 } from '../api'
-import { useCan, useIsOwner, useUser } from '../user'
+import { useCan, useCanManageServer, useUser } from '../user'
 
 const MODES = ['realtime', 'pipeline']
 const MODALITIES = ['text', 'audio', 'chat']
@@ -413,7 +413,7 @@ function AgentForm({ form, update, onSubmit, saving, saved, error, submitLabel, 
 
 export default function Agent() {
   const canManage = useCan('manage_agents')
-  const isOwner = useIsOwner()
+  const canManageServer = useCanManageServer()
   const user = useUser()
   const [agents, setAgents] = useState(null)
   const [agentsError, setAgentsError] = useState(null)
@@ -674,7 +674,7 @@ export default function Agent() {
                 </div>
               </div>
             </div>
-            <span className="text-xs" style={{ color: 'var(--text-faint)' }}>{isOwner ? 'Edit' : 'View'}</span>
+            <span className="text-xs" style={{ color: 'var(--text-faint)' }}>{canManageServer ? 'Edit' : 'View'}</span>
           </button>
 
           {agentsError && (
@@ -778,7 +778,7 @@ export default function Agent() {
                 error={configError}
                 submitLabel="Save template"
                 promptHint="The starting system prompt for new agents."
-                readOnly={!isOwner}
+                readOnly={!canManageServer}
               />
             </Card>
           ) : configError && !config ? (

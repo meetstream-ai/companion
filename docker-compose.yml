@@ -34,9 +34,12 @@ services:
     environment:
       POSTGRES_DB: meet_companion
       POSTGRES_USER: meet
-      POSTGRES_PASSWORD: meet_dev_password
+      # Set POSTGRES_PASSWORD in .env for anything but a local try-out.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meet_dev_password}
+    # Loopback only: Docker's port rules bypass host firewalls such as ufw,
+    # and the app reaches the database over the compose network anyway.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Page, PageHeader } from '../components/AppShell'
 import { useTheme } from '../components/AppShell'
 import { Badge, Card, ConnectionBadge, ErrorMessage, Field, Loading, Notice, Spinner } from '../components/ui'
-import { useCan, useIsOwner, useUser } from '../user'
+import { useCan, useCanManageServer, useIsOwner, useUser } from '../user'
 import {
   clearMeetstreamApiKey,
   completeSetup,
@@ -212,6 +212,7 @@ function PublicAddress({ status, onStatus, onError }) {
 export default function Settings() {
   const user = useUser()
   const isOwner = useIsOwner()
+  const canManageServer = useCanManageServer()
   const canExport = useCan('export_workspace')
   // ?section=meetings opens straight on a section: the agent's "can't look
   // anything up" warning links here.
@@ -377,11 +378,11 @@ export default function Settings() {
 
           {status.read_only && (section === 'ai' || section === 'database') && (
             <Card>
-              <h2 className="mb-1 text-base font-semibold">Managed by a workspace owner</h2>
+              <h2 className="mb-1 text-base font-semibold">Managed by the server administrator</h2>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 The AI provider ({status.llm?.provider || 'not set'}
                 {status.llm?.model ? ` · ${status.llm.model}` : ''}) and database ({status.database?.provider}) are
-                shared by everyone on this server. Ask an owner of your workspace to change them.
+                shared by everyone on this server. Only the server administrator (the owner of the first workspace) can change them.
               </p>
             </Card>
           )}
@@ -642,7 +643,7 @@ export default function Settings() {
                 </>
               )}
 
-              {isOwner && (
+              {canManageServer && (
                 <>
                   <hr className="my-6" style={{ borderColor: 'var(--border-subtle)' }} />
                   <PublicAddress status={status} onStatus={setStatus} onError={setError} />

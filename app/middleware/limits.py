@@ -21,6 +21,7 @@ from typing import Deque, Dict, Tuple
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.types import Message, Receive, Scope, Send
 
 #: (method, path prefix) -> (max requests, window seconds), keyed per (ip, email)
 RATE_LIMITED: Dict[Tuple[str, str], Tuple[int, int]] = {
@@ -104,15 +105,68 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
+TOO_LARGE = {"detail": "Request body too large."}
+
+
 class RequestLimitsMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, *, max_body_bytes: int) -> None:
         super().__init__(app)
         self.max_body_bytes = max_body_bytes
 
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """
+        Count the body bytes as they arrive. Content-Length is only a claim:
+        a chunked request has none, and would otherwise be read in full,
+        however large, before any route looked at it.
+
+        Past the cap, the 413 is sent from here and whatever was reading the
+        body is told the client went away. Raising instead does not work:
+        the inner middlewares read inside task groups, so the error reaches
+        FastAPI wrapped in an ExceptionGroup and comes out as a 400 or 500.
+        """
+        if scope["type"] != "http":
+            await super().__call__(scope, receive, send)
+            return
+
+        received = 0
+        started = False
+        refused = False
+
+        async def counted_receive() -> Message:
+            nonlocal received, refused
+            # Once over, stay over: a reader that swallowed the disconnect
+            # must not go on to read (or wait for) the rest of the body.
+            if received > self.max_body_bytes:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_body_bytes:
+                    if not started:
+                        refused = True
+                        await JSONResponse(status_code=413, content=TOO_LARGE)(scope, receive, send)
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def tracked_send(message: Message) -> None:
+            nonlocal started
+            if refused:
+                return  # the 413 is already out; the app's own answer is dropped
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await super().__call__(scope, counted_receive, tracked_send)
+        except Exception:
+            # A route that read the body itself fails on the "disconnect".
+            if not refused:
+                raise
+
     async def dispatch(self, request: Request, call_next):
         declared = request.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > self.max_body_bytes:
-            return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+            return JSONResponse(status_code=413, content=TOO_LARGE)
 
         path = request.url.path
         for (method, prefix), (limit, window) in RATE_LIMITED.items():

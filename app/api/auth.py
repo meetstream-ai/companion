@@ -31,16 +31,20 @@ def cookie_flags(request: Request) -> dict:
     """
     Session cookie attributes that actually work for how this install is reached.
 
-    Over HTTPS the UI may live on another origin (a separately hosted
-    frontend), which needs SameSite=None - and that attribute is only
-    accepted together with Secure. Over plain HTTP - a LAN box, a NAS, the
-    desktop bundle on 127.0.0.1 - a Secure cookie is silently dropped by the
-    browser and nobody can stay signed in, so the cookie is SameSite=Lax
-    instead: right for every same-origin deployment, and a cross-site
-    deployment without TLS is not something to support.
+    SameSite=Lax by default: right for every same-origin deployment, and it
+    keeps the browser from sending the cookie with requests other sites
+    start. Only a UI hosted on another origin (named in CORS_ORIGINS) needs
+    SameSite=None, which browsers accept only together with Secure, so only
+    over HTTPS. Over plain HTTP - a LAN box, a NAS, the desktop bundle on
+    127.0.0.1 - a Secure cookie is silently dropped by the browser and
+    nobody can stay signed in, so it is never Secure there.
     """
+    from app.middleware.origin_check import serves_cross_origin_ui
+
     if is_https(request):
-        return {"samesite": "none", "secure": True}
+        if serves_cross_origin_ui():
+            return {"samesite": "none", "secure": True}
+        return {"samesite": "lax", "secure": True}
     return {"samesite": "lax", "secure": False}
 
 
@@ -150,12 +154,17 @@ async def member_payload(user: User, db: AsyncSession) -> dict:
         )
     ).scalar_one_or_none()
     waiting = membership is not None and membership.status != "active"
+    from app.api.deps import is_instance_admin
+
     return {
         "id": str(user.id),
         "name": user.name,
         "email": user.email,
         "role": user.role,
         "permissions": perms.effective_permissions(user, org),
+        # Server-wide settings (AI, database, MeetStream, tunnel, agent
+        # template) belong to the server administrator, not every owner.
+        "can_manage_server": await is_instance_admin(user.id, db),
         "pending_approval": {"workspace": org.name if org else None} if waiting else None,
         # So Settings can say when the workspace's owner chose the AI for
         # everyone and this person's own AI settings do not apply here.

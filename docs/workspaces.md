@@ -18,7 +18,7 @@ second login to keep track of.
 Your first workspace is created for you at sign-up. Nothing needs converting to
 share it: hand someone the join code from **Members**, approve their request
 when it appears there, and it becomes a shared workspace. Owners decide what
-members may do there — add, edit, delete, manage agents, export, invite — from
+members may do there - add, edit, delete, manage agents, export, invite - from
 the same page.
 
 A join code is a request, not a key. Someone who uses it - at sign-up, or

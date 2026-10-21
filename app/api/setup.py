@@ -45,14 +45,15 @@ from app.runtime_config import (
     update_config,
 )
 from app.services.llm import build_llm_config
-from app.api.deps import OWNER
+from app.api.deps import SERVER_ADMIN_ONLY, is_instance_admin
 from app.middleware.auth_gate import COOKIE_NAME, any_account_exists, decode_session, first_run_open
 
 
 async def require_setup_access(request: Request) -> None:
     """
-    First-run setup is open (no account exists yet); afterwards only a
-    workspace owner may read secrets' previews or change configuration.
+    First-run setup is open (no account exists yet); afterwards only the
+    server administrator may read secrets' previews or change configuration.
+    A workspace owner is not enough: anyone who signs up owns a workspace.
     Enforced here rather than in the middleware so the rule is visible next
     to the endpoints it protects.
     """
@@ -67,13 +68,13 @@ async def require_setup_access(request: Request) -> None:
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
     async with get_db_context() as db:
-        role = (
-            await db.execute(select(User.role).where(User.id == user_id, User.is_active.is_(True)))
+        exists = (
+            await db.execute(select(User.id).where(User.id == user_id, User.is_active.is_(True)))
         ).scalar_one_or_none()
-    if role is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
-    if role != OWNER:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a workspace owner can change server settings.")
+        if exists is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
+        if not await is_instance_admin(user_id, db):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SERVER_ADMIN_ONLY)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -151,7 +152,8 @@ async def setup_status(request: Request) -> Dict[str, Any]:
     Whether onboarding is needed, and what the effective configuration is.
 
     Readable by any signed-in member (the UI needs it to boot), but masked
-    key previews, hosts and the database URL are only included for owners.
+    key previews, hosts and the database URL are only included for the
+    server administrator (can_manage_server).
     Signed out, it answers only whether setup is done and whether any
     account exists - what the sign-in screen needs - so booting a
     configured install never has to treat a 401 as the answer.
@@ -159,7 +161,7 @@ async def setup_status(request: Request) -> Dict[str, Any]:
     full = await _full_status()
     try:
         await require_setup_access(request)
-        return full
+        return {**full, "can_manage_server": True}
     except HTTPException as exc:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
             return {
@@ -182,6 +184,7 @@ async def setup_status(request: Request) -> Dict[str, Any]:
         },
         "meetstream": {"configured": full["meetstream"]["configured"]},
         "read_only": True,
+        "can_manage_server": False,
     }
 
 
@@ -315,10 +318,16 @@ async def test_llm(payload: LLMConfigPayload) -> Dict[str, Any]:
         )
 
     # A blank key means "the one already saved", exactly as it does on save -
-    # otherwise Test connection fails right after a successful save.
+    # otherwise Test connection fails right after a successful save. Only for
+    # the host it was saved for: sent anywhere else, the saved key would be
+    # handed to whoever runs that host.
     api_key = payload.api_key
     stored = load_config().llm
-    if not api_key and stored.provider == payload.provider:
+    if (
+        not api_key
+        and stored.provider == payload.provider
+        and _effective_base_url(payload.provider, payload.base_url) == _effective_base_url(stored.provider, stored.base_url)
+    ):
         api_key = stored.api_key
 
     try:
@@ -337,6 +346,20 @@ async def test_llm(payload: LLMConfigPayload) -> Dict[str, Any]:
 
     result = await provider.health_check()
     return {"ok": result.ok, "detail": result.detail, "models": result.models}
+
+
+def _effective_base_url(provider: Optional[str], base_url: Optional[str]) -> str:
+    """
+    The host a provider config talks to. Blank means the provider's default,
+    which is also what the Settings form shows, so the two compare equal.
+    """
+    from app.providers.llm import PROVIDERS
+
+    url = (base_url or "").strip()
+    if not url and provider in DESCRIPTORS:
+        default = next((f.default for f in DESCRIPTORS[provider].fields if f.key == "base_url" and f.default), None)
+        url = str(default or getattr(PROVIDERS.get(provider), "default_base_url", None) or "")
+    return url.rstrip("/").lower()
 
 
 def _friendly_db_error(exc: Exception, url: str) -> str:
@@ -481,6 +504,10 @@ async def _carry_account_over(snapshot: Dict[str, Any]) -> Optional[uuid.UUID]:
         db.add(user)
         await db.flush()
         db.add(Membership(user_id=user.id, organization_id=org.id, role=OWNER))
+        # The first account on this database: it administers the server here.
+        from app.api.deps import pin_admin_workspace
+
+        await pin_admin_workspace(db, org.id)
         await db.commit()
         logger.info("Carried account %s over to the new database as owner of '%s'", snapshot["email"], snapshot["workspace"])
         return user.id

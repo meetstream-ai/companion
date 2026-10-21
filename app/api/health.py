@@ -1,11 +1,15 @@
 """
 Health check endpoints for service and dependency monitoring.
 """
+import logging
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.database.connection import POSTGRESQL, get_db
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -47,7 +51,10 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
         else:
             vector_search = "in-process"
     except Exception as exc:
-        details["error"] = str(exc)
+        # Unauthenticated and reachable through the tunnel: driver errors
+        # name hosts and users, so they go to the log, not the response.
+        logger.warning("Readiness check: database not usable: %s", exc)
+        details["error"] = "Database check failed; see the server log."
 
     ready = db_healthy and vector_search != "unavailable"
     if dialect == POSTGRESQL and vector_search == "unavailable":

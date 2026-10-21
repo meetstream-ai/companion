@@ -20,7 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.connection import get_db
 from app.models.database import Membership, Organization, User
 from app.middleware.auth_gate import COOKIE_NAME, decode_session
-from app.api.deps import OWNER, get_current_account, get_current_org_id, get_current_user, is_owner, require_owner
+from app.api.deps import (
+    OWNER, get_current_account, get_current_org_id, get_current_user, is_instance_admin,
+    is_owner, pin_admin_workspace, require_active_membership, require_owner,
+)
 from app import permissions as perms
 from app.config import settings
 from app.security import hash_password, verify_password
@@ -298,6 +301,38 @@ async def regenerate_join_code(
     raise HTTPException(status_code=409, detail="Could not allocate a join code; please try again.")
 
 
+@router.post("/workspace/mcp-token")
+async def rotate_mcp_token(
+    owner: User = Depends(require_owner), db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Issue a new MCP token for this workspace, retiring the old one. Owner-only.
+
+    The token is written into every member's agent at MeetStream, so a
+    removed member may still hold a copy that reads and writes this
+    workspace's memory through /mcp. This is how to cut that off: the old
+    token stops working the moment this returns.
+
+    Agents are not rewired here. Each member's own agent gets the new token
+    the next time they launch a bot or activate an agent (both run
+    ensure_mcp_wired with their own MeetStream key). Until then, an agent
+    used in a call started outside this app cannot reach memory.
+    """
+    org = await perms.load_org(owner.organization_id, db)
+    if not org:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    for _ in range(5):
+        token = _new_token()
+        taken = (
+            await db.execute(select(Organization.id).where(Organization.mcp_token == token))
+        ).scalar_one_or_none()
+        if not taken:
+            org.mcp_token = token
+            await db.commit()
+            return {"rotated": True}
+    raise HTTPException(status_code=409, detail="Could not allocate a token; please try again.")
+
+
 @router.delete("/workspace")
 async def delete_workspace(
     owner: User = Depends(require_owner), db: AsyncSession = Depends(get_db)
@@ -459,6 +494,9 @@ async def add_member(body: CreateMemberRequest, request: Request, db: AsyncSessi
         # Already signed in - adding a teammate straight into your own workspace,
         # which is inviting, so it needs the same permission the join code does.
         current = (await db.execute(select(User).where(User.id == current_user_id))).scalar_one()
+        # Someone whose request to join is still pending has this workspace
+        # open but is not in it; without this they could let others in.
+        await require_active_membership(current, db)
         org_id = current.organization_id
         if not perms.effective_permissions(current, await perms.load_org(org_id, db))["invite_members"]:
             raise HTTPException(
@@ -469,7 +507,8 @@ async def add_member(body: CreateMemberRequest, request: Request, db: AsyncSessi
         # Self-signup - must explicitly create a new workspace or join one by code.
         # A deployment can switch that off; the very first account is always
         # allowed, or nobody could ever sign in.
-        if not settings.ALLOW_SELF_SIGNUP and (await db.execute(select(func.count(User.id)))).scalar_one() > 0:
+        first_account = (await db.execute(select(func.count(User.id)))).scalar_one() == 0
+        if not settings.ALLOW_SELF_SIGNUP and not first_account:
             raise HTTPException(
                 status_code=403,
                 detail="Self-signup is switched off on this server. Ask a workspace owner to add you from their Members page.",
@@ -484,6 +523,9 @@ async def add_member(body: CreateMemberRequest, request: Request, db: AsyncSessi
             org_id = org.id
             # Whoever creates a workspace owns it.
             role = OWNER
+            if first_account:
+                # The install's own team: its owners administer the server.
+                await pin_admin_workspace(db, org_id)
         else:
             result = await db.execute(select(Organization.id).where(Organization.join_code == body.join_code.strip()))
             org_id = result.scalar_one_or_none()
@@ -582,6 +624,14 @@ async def create_workspace_for_me(
         raise HTTPException(status_code=400, detail="A workspace name is required.")
     if len(name) > 255:
         raise HTTPException(status_code=400, detail="That workspace name is too long.")
+    # Creating a workspace is signing up for one. With self-signup off, the
+    # server administrator decides who gets one; otherwise any member could
+    # do from here what the sign-up form refuses.
+    if not settings.ALLOW_SELF_SIGNUP and not await is_instance_admin(user.id, db):
+        raise HTTPException(
+            status_code=403,
+            detail="New workspaces are switched off on this server. Ask the server administrator.",
+        )
 
     # _create_workspace rolls the session back to retry a slug collision, and a
     # rollback expires every object loaded so far - including the `user` the

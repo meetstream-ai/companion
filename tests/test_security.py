@@ -336,7 +336,7 @@ def test_action_item_update_schema_validation():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_cookie_is_usable_over_plain_http_and_strict_over_https():
+async def test_cookie_is_usable_over_plain_http_and_strict_over_https(monkeypatch):
     email = f"c-{uuid.uuid4().hex[:6]}@example.com"
     async with _client() as c:
         await _signup(c, email, workspace="Kappa")
@@ -346,6 +346,12 @@ async def test_cookie_is_usable_over_plain_http_and_strict_over_https():
         assert "secure" not in header and "samesite=lax" in header
         # The jar keeps a non-Secure cookie over http, so the session just works.
         assert (await http.get("/api/auth/check")).json()["authenticated"] is True
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://hosted.example") as https:
+        header = (await https.post("/api/auth/login", json=creds)).headers["set-cookie"].lower()
+        # Same-origin UI: Lax, so other sites' requests go without the cookie.
+        assert "secure" in header and "samesite=lax" in header
+    # A UI on another origin needs the cookie on its cross-site calls.
+    monkeypatch.setattr(settings, "CORS_ORIGINS", ["https://ui.example"])
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://hosted.example") as https:
         header = (await https.post("/api/auth/login", json=creds)).headers["set-cookie"].lower()
         assert "secure" in header and "samesite=none" in header
@@ -542,3 +548,114 @@ async def test_account_creation_has_a_tighter_per_address_ceiling():
             r = await c.post("/api/members", json={"name": "r", "email": f"r{i}-{uuid.uuid4().hex[:6]}@example.com", "password": "correct-horse-battery", "workspace_name": f"rl{i}"})
             codes.append(r.status_code)
         assert codes[:15] == [200] * 15 and 429 in codes[15:], codes
+
+
+# ---------------------------------------------------------------------------
+# Body size counted on the wire, not taken from Content-Length
+# ---------------------------------------------------------------------------
+
+async def _chunked(total, chunk=1024 * 1024):
+    sent = 0
+    while sent < total:
+        piece = min(chunk, total - sent)
+        sent += piece
+        yield b" " * piece
+
+
+@pytest.mark.asyncio
+async def test_a_chunked_body_past_the_cap_is_refused():
+    """No Content-Length to check: the bytes themselves are counted."""
+    too_big = settings.MAX_REQUEST_BYTES + 1
+    async with _client() as c:
+        # Read by the route itself, before any signature check.
+        r = await c.post("/api/webhooks/meetstream", content=_chunked(too_big), headers={"Content-Type": "application/json"})
+        assert r.status_code == 413, r.text
+        assert "content-length" not in {k.lower() for k in r.request.headers}
+        # Read first by the rate limiter (which swallows errors), then by FastAPI.
+        r = await c.post("/api/auth/login", content=_chunked(too_big), headers={"Content-Type": "application/json"})
+        assert r.status_code == 413, r.text
+        # A small chunked body still arrives whole.
+        r = await c.post("/api/auth/login", content=_chunked(40, chunk=7), headers={"Content-Type": "application/json"})
+        assert r.status_code == 422, r.text
+
+
+# ---------------------------------------------------------------------------
+# Cross-site requests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_state_changing_requests_from_another_site_are_refused(monkeypatch):
+    path = "/api/members/workspace/join-code"  # a POST with no body
+    async with _client() as c:
+        await _signup(c, f"o-{uuid.uuid4().hex[:6]}@example.com", workspace="Origin")
+        # Another site's page firing it with the cookie.
+        r = await c.post(path, headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+        assert r.status_code == 403, r.text
+        # A sibling subdomain is the same site, not the same origin.
+        r = await c.post(path, headers={"Sec-Fetch-Site": "same-site", "Origin": "https://evil.test"})
+        assert r.status_code == 403, r.text
+        # Reading is not state-changing.
+        r = await c.get("/api/members/workspace", headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+        assert r.status_code == 200
+
+        # This server's own pages, and clients that send no header at all.
+        assert (await c.post(path, headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://test"})).status_code == 200
+        assert (await c.post(path, headers={"Sec-Fetch-Site": "none"})).status_code == 200
+        assert (await c.post(path)).status_code == 200
+        # A UI on another origin, when configured.
+        monkeypatch.setattr(settings, "CORS_ORIGINS", ["https://ui.example"])
+        r = await c.post(path, headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://ui.example"})
+        assert r.status_code == 200, r.text
+        r = await c.post(path, headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+        assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_proxy_that_rewrites_host_does_not_break_writes():
+    """nginx's default sends Host: 127.0.0.1:8000 whatever the browser used."""
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as proxied:
+        headers = {"Origin": "https://companion.example.com", "Sec-Fetch-Site": "same-origin"}
+        r = await proxied.post("/api/auth/login", json={"email": "nobody@example.com", "password": "x"}, headers=headers)
+        assert r.status_code == 401, r.text  # reached the route, not refused
+
+
+# ---------------------------------------------------------------------------
+# What the unauthenticated and logged surfaces give away
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_readiness_does_not_return_database_error_text(client):
+    from app.database.connection import get_db
+
+    class _Broken:
+        class bind:
+            class dialect:
+                name = "postgresql"
+
+        async def execute(self, *_args, **_kwargs):
+            raise RuntimeError('password authentication failed for user "secretuser" at db.internal')
+
+    async def broken_db():
+        yield _Broken()
+
+    app.dependency_overrides[get_db] = broken_db
+    try:
+        r = await client.get("/health/ready")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    assert r.status_code == 200 and r.json()["database"] == "disconnected"
+    assert "secretuser" not in r.text and "db.internal" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_arguments_are_not_logged_at_info(client, caplog):
+    import logging
+
+    headers = {"Authorization": f"Bearer {settings.MCP_AUTH_TOKEN}"}
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+               "params": {"name": "search_meeting_memory", "arguments": {"query": "CONFIDENTIAL-merger-plan"}}}
+    with caplog.at_level(logging.INFO, logger="app.mcp.server"):
+        assert (await client.post("/mcp", json=payload, headers=headers)).status_code == 200
+    info = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO and r.name == "app.mcp.server"]
+    assert any("search_meeting_memory" in m for m in info)
+    assert not any("CONFIDENTIAL" in m for m in info)

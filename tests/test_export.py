@@ -292,3 +292,19 @@ async def test_unicode_stays_readable_rather_than_escaped(authed_client):
 
     ws = (await authed_client.get("/api/export/workspace", params={"format": "json"})).content
     assert "東京".encode("utf-8") in ws
+
+
+@pytest.mark.asyncio
+async def test_folder_names_cannot_climb_out_of_the_export(authed_client):
+    """A folder named '..' (or holding separators) is one plain path part."""
+    up = (await authed_client.post("/api/notebook/folders", json={"name": ".."})).json()
+    sneaky = (await authed_client.post("/api/notebook/folders", json={"name": "a/../../b\\..\\c", "parent_id": up["id"]})).json()
+    await _note(authed_client, "Escape", "payload", folder_id=sneaky["id"])
+
+    r = await authed_client.get("/api/export/workspace", params={"format": "md"})
+    with zipfile.ZipFile(io.BytesIO(r.content)) as archive:
+        names = archive.namelist()
+    note = next(n for n in names if n.endswith("escape.md"))
+    parts = note.split("/")
+    assert parts[0] == "notes" and len(parts) == 4, note
+    assert all(part not in ("", ".", "..") and "\\" not in part for part in parts), note

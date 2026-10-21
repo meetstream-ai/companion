@@ -52,6 +52,16 @@ def _slug(value: Optional[str], fallback: str = "untitled") -> str:
     return (base or fallback)[:60]
 
 
+def _path_part(value: Optional[str], fallback: str = "folder") -> str:
+    """
+    One folder name as one zip path component. Keeps the name readable (case,
+    spaces, accents) but never a separator or a dot-only name, so a folder
+    called ".." or "a/../../b" cannot climb out of notes/ when unzipped.
+    """
+    base = re.sub(r'[/\\\x00-\x1f:*?"<>|]', "-", value or "").strip().strip(".").strip()
+    return (base or fallback)[:100]
+
+
 def _iso(value: Any) -> Optional[str]:
     if isinstance(value, datetime):
         return utc_iso(value)
@@ -111,7 +121,7 @@ def _folder_path(folder_id: Optional[uuid.UUID], folders: Dict[uuid.UUID, Notebo
     current = folders.get(folder_id) if folder_id else None
     while current is not None and current.id not in seen:
         seen.add(current.id)
-        parts.append(current.name)
+        parts.append(_path_part(current.name))
         current = folders.get(current.parent_id) if current.parent_id else None
     return "/".join(reversed(parts))
 

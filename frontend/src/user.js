@@ -17,6 +17,14 @@ export function useIsOwner() {
 }
 
 /**
+ * Whether the signed-in member administers the server itself: the owner of
+ * its first workspace. Other owners run only their own workspace.
+ */
+export function useCanManageServer() {
+  return Boolean(useUser()?.can_manage_server)
+}
+
+/**
  * Whether the signed-in member may do this in their workspace (see
  * app/permissions.py for the keys). Owners always may. Presentation only -
  * the server decides for real.
