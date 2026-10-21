@@ -11,6 +11,7 @@ const http = require('node:http')
 const path = require('node:path')
 const fs = require('node:fs')
 const { createServerLog } = require('./server-log')
+const { isAppUrl, isSafeExternal } = require('./navigation')
 
 let serverProcess = null
 let serverPort = null
@@ -155,13 +156,24 @@ function createWindow(port) {
     },
   })
 
-  // Links to other sites open in the system browser, never inside the app.
+  // Links to other sites open in the system browser, never inside the app:
+  // a remote page in an app window looks exactly like the app.
+  const appOrigin = `http://127.0.0.1:${port}`
+  const openOutside = (url) => {
+    if (isSafeExternal(url)) shell.openExternal(url)
+  }
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(`http://127.0.0.1:${port}`)) {
-      shell.openExternal(url)
+    if (!isAppUrl(url, appOrigin)) {
+      openOutside(url)
       return { action: 'deny' }
     }
     return { action: 'allow' }
+  })
+  // The same for a plain link followed in the main window.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url, appOrigin)) return
+    event.preventDefault()
+    openOutside(url)
   })
 
   attachDeviceKey(port).finally(() => mainWindow?.loadURL(`http://127.0.0.1:${port}/`))
