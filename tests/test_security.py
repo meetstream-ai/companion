@@ -585,29 +585,38 @@ async def test_a_chunked_body_past_the_cap_is_refused():
 
 @pytest.mark.asyncio
 async def test_state_changing_requests_from_another_site_are_refused(monkeypatch):
+    path = "/api/members/workspace/join-code"  # a POST with no body
     async with _client() as c:
         await _signup(c, f"o-{uuid.uuid4().hex[:6]}@example.com", workspace="Origin")
-        # Another site's page firing a body-less POST with the cookie.
-        r = await c.post("/api/members/workspace/join-code", headers={"Origin": "https://evil.example"})
+        # Another site's page firing it with the cookie.
+        r = await c.post(path, headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
         assert r.status_code == 403, r.text
-        assert (await c.post("/api/setup/reset", headers={"Origin": "null"})).status_code == 403
+        # A sibling subdomain is the same site, not the same origin.
+        r = await c.post(path, headers={"Sec-Fetch-Site": "same-site", "Origin": "https://evil.test"})
+        assert r.status_code == 403, r.text
         # Reading is not state-changing.
-        assert (await c.get("/api/members/workspace", headers={"Origin": "https://evil.example"})).status_code == 200
+        r = await c.get("/api/members/workspace", headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+        assert r.status_code == 200
 
-        # This server's own pages, and clients that send no Origin, pass.
-        assert (await c.post("/api/members/workspace/join-code", headers={"Origin": "http://test"})).status_code == 200
-        assert (await c.post("/api/members/workspace/join-code")).status_code == 200
+        # This server's own pages, and clients that send no header at all.
+        assert (await c.post(path, headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://test"})).status_code == 200
+        assert (await c.post(path, headers={"Sec-Fetch-Site": "none"})).status_code == 200
+        assert (await c.post(path)).status_code == 200
         # A UI on another origin, when configured.
         monkeypatch.setattr(settings, "CORS_ORIGINS", ["https://ui.example"])
-        assert (await c.post("/api/members/workspace/join-code", headers={"Origin": "https://ui.example"})).status_code == 200
+        r = await c.post(path, headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://ui.example"})
+        assert r.status_code == 200, r.text
+        r = await c.post(path, headers={"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+        assert r.status_code == 403, r.text
 
-    # Behind a trusted proxy the browser's host is X-Forwarded-Host.
+
+@pytest.mark.asyncio
+async def test_a_proxy_that_rewrites_host_does_not_break_writes():
+    """nginx's default sends Host: 127.0.0.1:8000 whatever the browser used."""
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as proxied:
-        headers = {"Origin": "https://meet.example.com", "X-Forwarded-Host": "meet.example.com"}
-        body = {"email": "nobody@example.com", "password": "x"}
-        assert (await proxied.post("/api/auth/login", json=body, headers=headers)).status_code == 403
-        monkeypatch.setattr(settings, "TRUST_PROXY", True)
-        assert (await proxied.post("/api/auth/login", json=body, headers=headers)).status_code == 401
+        headers = {"Origin": "https://companion.example.com", "Sec-Fetch-Site": "same-origin"}
+        r = await proxied.post("/api/auth/login", json={"email": "nobody@example.com", "password": "x"}, headers=headers)
+        assert r.status_code == 401, r.text  # reached the route, not refused
 
 
 # ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ def cookie_flags(request: Request) -> dict:
     from app.middleware.origin_check import serves_cross_origin_ui
 
     if is_https(request):
-        if serves_cross_origin_ui(request):
+        if serves_cross_origin_ui():
             return {"samesite": "none", "secure": True}
         return {"samesite": "lax", "secure": True}
     return {"samesite": "lax", "secure": False}

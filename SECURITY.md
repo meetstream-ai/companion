@@ -72,10 +72,5 @@ Do these things when you expose an instance beyond localhost:
   launched.
 - Put the server behind a reverse proxy that allows only your own host names.
   The server does not check the `Host` header itself.
-- The server refuses a POST, PUT, PATCH or DELETE from a browser page on a
-  different site. It compares the `Origin` header with the `Host` header. Your
-  proxy must pass the original `Host` through. Or set `TRUST_PROXY=true` and
-  send `X-Forwarded-Host`. If your UI is on a different origin, add that
-  origin to `CORS_ORIGINS`.
 - Set `APP_ENV=production` to hide `/docs` and `/openapi.json`. The default
   outside Docker is `development`, which shows them.
