@@ -107,6 +107,11 @@ app.add_middleware(RequestLimitsMiddleware, max_body_bytes=settings.MAX_REQUEST_
 from app.middleware.tunnel_guard import TunnelGuardMiddleware  # noqa: E402
 
 app.add_middleware(TunnelGuardMiddleware)
+# Refuse POST/PUT/PATCH/DELETE that a page on another site started with the
+# session cookie (see app/middleware/origin_check.py).
+from app.middleware.origin_check import OriginCheckMiddleware  # noqa: E402
+
+app.add_middleware(OriginCheckMiddleware)
 
 # CORS Middleware
 app.add_middleware(

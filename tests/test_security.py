@@ -336,7 +336,7 @@ def test_action_item_update_schema_validation():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_cookie_is_usable_over_plain_http_and_strict_over_https():
+async def test_cookie_is_usable_over_plain_http_and_strict_over_https(monkeypatch):
     email = f"c-{uuid.uuid4().hex[:6]}@example.com"
     async with _client() as c:
         await _signup(c, email, workspace="Kappa")
@@ -346,6 +346,12 @@ async def test_cookie_is_usable_over_plain_http_and_strict_over_https():
         assert "secure" not in header and "samesite=lax" in header
         # The jar keeps a non-Secure cookie over http, so the session just works.
         assert (await http.get("/api/auth/check")).json()["authenticated"] is True
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://hosted.example") as https:
+        header = (await https.post("/api/auth/login", json=creds)).headers["set-cookie"].lower()
+        # Same-origin UI: Lax, so other sites' requests go without the cookie.
+        assert "secure" in header and "samesite=lax" in header
+    # A UI on another origin needs the cookie on its cross-site calls.
+    monkeypatch.setattr(settings, "CORS_ORIGINS", ["https://ui.example"])
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://hosted.example") as https:
         header = (await https.post("/api/auth/login", json=creds)).headers["set-cookie"].lower()
         assert "secure" in header and "samesite=none" in header
@@ -542,3 +548,63 @@ async def test_account_creation_has_a_tighter_per_address_ceiling():
             r = await c.post("/api/members", json={"name": "r", "email": f"r{i}-{uuid.uuid4().hex[:6]}@example.com", "password": "correct-horse-battery", "workspace_name": f"rl{i}"})
             codes.append(r.status_code)
         assert codes[:15] == [200] * 15 and 429 in codes[15:], codes
+
+
+# ---------------------------------------------------------------------------
+# Body size counted on the wire, not taken from Content-Length
+# ---------------------------------------------------------------------------
+
+async def _chunked(total, chunk=1024 * 1024):
+    sent = 0
+    while sent < total:
+        piece = min(chunk, total - sent)
+        sent += piece
+        yield b" " * piece
+
+
+@pytest.mark.asyncio
+async def test_a_chunked_body_past_the_cap_is_refused():
+    """No Content-Length to check: the bytes themselves are counted."""
+    too_big = settings.MAX_REQUEST_BYTES + 1
+    async with _client() as c:
+        # Read by the route itself, before any signature check.
+        r = await c.post("/api/webhooks/meetstream", content=_chunked(too_big), headers={"Content-Type": "application/json"})
+        assert r.status_code == 413, r.text
+        assert "content-length" not in {k.lower() for k in r.request.headers}
+        # Read first by the rate limiter (which swallows errors), then by FastAPI.
+        r = await c.post("/api/auth/login", content=_chunked(too_big), headers={"Content-Type": "application/json"})
+        assert r.status_code == 413, r.text
+        # A small chunked body still arrives whole.
+        r = await c.post("/api/auth/login", content=_chunked(40, chunk=7), headers={"Content-Type": "application/json"})
+        assert r.status_code == 422, r.text
+
+
+# ---------------------------------------------------------------------------
+# Cross-site requests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_state_changing_requests_from_another_site_are_refused(monkeypatch):
+    async with _client() as c:
+        await _signup(c, f"o-{uuid.uuid4().hex[:6]}@example.com", workspace="Origin")
+        # Another site's page firing a body-less POST with the cookie.
+        r = await c.post("/api/members/workspace/join-code", headers={"Origin": "https://evil.example"})
+        assert r.status_code == 403, r.text
+        assert (await c.post("/api/setup/reset", headers={"Origin": "null"})).status_code == 403
+        # Reading is not state-changing.
+        assert (await c.get("/api/members/workspace", headers={"Origin": "https://evil.example"})).status_code == 200
+
+        # This server's own pages, and clients that send no Origin, pass.
+        assert (await c.post("/api/members/workspace/join-code", headers={"Origin": "http://test"})).status_code == 200
+        assert (await c.post("/api/members/workspace/join-code")).status_code == 200
+        # A UI on another origin, when configured.
+        monkeypatch.setattr(settings, "CORS_ORIGINS", ["https://ui.example"])
+        assert (await c.post("/api/members/workspace/join-code", headers={"Origin": "https://ui.example"})).status_code == 200
+
+    # Behind a trusted proxy the browser's host is X-Forwarded-Host.
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as proxied:
+        headers = {"Origin": "https://meet.example.com", "X-Forwarded-Host": "meet.example.com"}
+        body = {"email": "nobody@example.com", "password": "x"}
+        assert (await proxied.post("/api/auth/login", json=body, headers=headers)).status_code == 403
+        monkeypatch.setattr(settings, "TRUST_PROXY", True)
+        assert (await proxied.post("/api/auth/login", json=body, headers=headers)).status_code == 401
