@@ -4,8 +4,10 @@
 
 Please do **not** open a public issue for security problems.
 
-Email **thalhaahamedt@gmail.com** with a description, steps to reproduce, and
-the version or commit you tested. You will get an acknowledgement within a few
+Report it privately through
+[GitHub's private vulnerability reporting](https://github.com/meetstream-ai/companion/security/advisories/new),
+or email **support@meetstream.ai** with "Security" in the subject. Include a
+description, steps to reproduce, and the version or commit you tested. You will get an acknowledgement within a few
 days. Fixes are released as soon as they are ready and credited in the release
 notes unless you prefer otherwise.
 

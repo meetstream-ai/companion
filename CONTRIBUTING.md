@@ -26,10 +26,10 @@ the models drift from the migrations, so CI catches a forgotten revision.
 Requirements: **Python 3.12**, **Node 22**, and optionally Docker (for Postgres).
 
 ```bash
-git clone https://github.com/ThalhaAhamed/MeetCompanion.git
-cd MeetCompanion
-python -m venv .venv
-.venv/Scripts/activate            # macOS / Linux: source .venv/bin/activate
+git clone https://github.com/meetstream-ai/companion.git
+cd companion
+python3.12 -m venv .venv
+source .venv/bin/activate         # Windows: py -3.12 -m venv .venv, then .venv\Scripts\activate
 pip install -r requirements.txt
 npm --prefix frontend install
 ```

@@ -7,7 +7,7 @@ once MeetStream has the transcript (a few minutes after the call). If it
 does not move at all, the server cannot reach MeetStream (network, or the
 API key was changed after launch); the server log says why. *Reprocess*
 fetches the transcript by id at any time. The agent answering *in* the call
-is the part that needs a public address — **Settings → Meetings → Public
+is the part that needs a public address - **Settings → Meetings → Public
 address** (see [Live meetings](live-meetings.md)).
 
 **"Processed without AI (…)"** on a meeting. The AI provider failed and the
@@ -50,7 +50,7 @@ signs in *the* owner and refuses to guess between several. Sign in normally.
 
 **Signed out, and your account is on a different database.** On the desktop
 app the sign-in page names the database it is about to sign you in to, with
-the other saved ones underneath it — pick one and it switches there. If that
+the other saved ones underneath it - pick one and it switches there. If that
 database already knows this machine, you land straight in the app; otherwise
 you get the sign-in form again, now on the right database. The same menu's
 **Connect another database** takes a connection string for one this computer
@@ -59,8 +59,8 @@ has never seen, saves it and switches to it - the onboarding wizard's
 
 **"Incorrect email or password" right after switching databases.** Accounts
 live in the database, so on a database that already has people in it your
-old account does not exist — sign in with an account from *that* database,
+old account does not exist - sign in with an account from *that* database,
 or ask its owner to add you. On an *empty* database (a fresh Postgres) your
 account is carried over automatically as of v0.4.3 and you stay signed in;
-your meetings and notes are not copied — they remain in the previous
+your meetings and notes are not copied - they remain in the previous
 database. To bring them across, see `scripts/import_from_postgres.py`.

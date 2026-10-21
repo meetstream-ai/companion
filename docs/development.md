@@ -3,8 +3,8 @@
 Requires **Python 3.12** (3.13+ is not yet supported by every dependency) and **Node 22**.
 
 ```bash
-git clone https://github.com/ThalhaAhamed/MeetCompanion.git
-cd MeetCompanion
+git clone https://github.com/meetstream-ai/companion.git
+cd companion
 
 py -3.12 -m venv .venv        # Windows  (python3.12 -m venv .venv on macOS / Linux)
 .venv/Scripts/activate        # Windows
@@ -20,20 +20,20 @@ npm --prefix frontend install
 Run both with one command:
 
 ```bash
-.venv/Scripts/python scripts/dev.py       # API on :8000 (auto-reload) + UI on :3000
+python scripts/dev.py       # API on :8000 (auto-reload) + UI on :3000
 ```
 
 Or separately, in two terminals:
 
 ```bash
-.venv/Scripts/python -m uvicorn app.main:app --port 8000 --reload
+python -m uvicorn app.main:app --port 8000 --reload
 ```
 
 ```bash
 npm --prefix frontend run dev
 ```
 
-Open <http://localhost:3000>. No `.env` is required — first run walks you
+Open <http://localhost:3000>. No `.env` is required - first run walks you
 through setup.
 
 > The API serves the built UI from `frontend/dist` only if it exists when the
@@ -51,7 +51,7 @@ are created automatically.
 **Tests and lint:**
 
 ```bash
-.venv/Scripts/python -m pytest          # hermetic: throwaway SQLite, no network
+python -m pytest          # hermetic: throwaway SQLite, no network
 npm --prefix frontend run lint
 npm --prefix frontend test
 ```
@@ -78,7 +78,7 @@ Releases for all three platforms are built by
 | **Backend** | Python 3.12 · [FastAPI](https://fastapi.tiangolo.com) · Uvicorn · Pydantic v2 | Async end to end; the request schemas double as the API contract. |
 | **Data** | SQLAlchemy 2 (async) · Alembic migrations · SQLite via `aiosqlite` · PostgreSQL via `asyncpg` + [pgvector](https://github.com/pgvector/pgvector) | One ORM model runs on a local file or a hosted Postgres; migrations run themselves at startup. |
 | **Embeddings** | [fastembed](https://github.com/qdrant/fastembed) running `all-MiniLM-L6-v2` on ONNX Runtime | Same vectors as the PyTorch model without a multi-gigabyte torch dependency; computed locally, never sent anywhere. |
-| **LLMs** | Adapters over `httpx` for OpenAI, Anthropic, Gemini, Groq, xAI, Ollama and any OpenAI-compatible endpoint | No vendor SDKs — one small file per provider, so adding one is an afternoon. |
+| **LLMs** | Adapters over `httpx` for OpenAI, Anthropic, Gemini, Groq, xAI, Ollama and any OpenAI-compatible endpoint | No vendor SDKs - one small file per provider, so adding one is an afternoon. |
 | **Meeting capture** | [MeetStream](https://meetstream.ai) bots, webhooks (HMAC-signed) and a built-in [MCP](https://modelcontextprotocol.io) server | The in-call agent's memory lookups are ordinary MCP tool calls against this app. |
 | **Documents** | `pypdf`, `.docx` read as XML, `langchain-text-splitters` for chunking | Reference material for Ask AI without a heavyweight document pipeline. |
 | **Frontend** | [React 19](https://react.dev) · [Vite 8](https://vite.dev) · [Tailwind CSS 4](https://tailwindcss.com) · React Router 7 · `marked` for Markdown | Small, fast, no component framework; the knowledge graph is a hand-written force simulation on SVG. |

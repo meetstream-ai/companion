@@ -19,12 +19,12 @@ Notes for contributors on how Meet Companion is put together and why.
 UI → API → services → providers → external systems
 ```
 
-- `app/api/` — HTTP surface. Validation and serialisation only; no vendor logic.
-- `app/services/` — application logic (memory extraction, embeddings, provider
+- `app/api/` - HTTP surface. Validation and serialisation only; no vendor logic.
+- `app/services/` - application logic (memory extraction, embeddings, provider
   resolution).
-- `app/database/` — repositories. All queries are organization-scoped.
-- `app/providers/` — the swappable parts.
-- `app/models/` — ORM models plus the portable column types that let one schema
+- `app/database/` - repositories. All queries are organization-scoped.
+- `app/providers/` - the swappable parts.
+- `app/models/` - ORM models plus the portable column types that let one schema
   target several databases.
 
 ## LLM providers
@@ -55,7 +55,7 @@ change.
    `tests/test_llm_providers.py`.
 
 Anything speaking the OpenAI chat-completions format needs no new adapter at
-all — subclass `OpenAICompatibleProvider` and change the default base URL, which
+all - subclass `OpenAICompatibleProvider` and change the default base URL, which
 is all `GroqProvider` does.
 
 ## Database providers
@@ -134,7 +134,7 @@ Precedence, highest first:
 the UI can render them read-only, rather than appearing to accept changes that
 are silently overridden.
 
-Secrets are accepted but never returned — responses carry masked previews only,
+Secrets are accepted but never returned - responses carry masked previews only,
 and omitting a key on save keeps the stored one, so a settings form that never
 saw the real key cannot erase it.
 
@@ -158,7 +158,7 @@ database on every request, so removing a member revokes their session at once.
 
 ## Testing
 
-The suite is hermetic — a throwaway SQLite file, no Postgres, no Docker, no
+The suite is hermetic - a throwaway SQLite file, no Postgres, no Docker, no
 network. HTTP calls to providers are mocked with `pytest_httpx`.
 
 The schema is rebuilt per test so rows from one test cannot leak into the next.
