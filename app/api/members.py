@@ -20,7 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.connection import get_db
 from app.models.database import Membership, Organization, User
 from app.middleware.auth_gate import COOKIE_NAME, decode_session
-from app.api.deps import OWNER, get_current_account, get_current_org_id, get_current_user, is_owner, require_owner
+from app.api.deps import (
+    OWNER, get_current_account, get_current_org_id, get_current_user, is_instance_admin, is_owner,
+    require_active_membership, require_owner,
+)
 from app import permissions as perms
 from app.config import settings
 from app.security import hash_password, verify_password
@@ -459,6 +462,9 @@ async def add_member(body: CreateMemberRequest, request: Request, db: AsyncSessi
         # Already signed in - adding a teammate straight into your own workspace,
         # which is inviting, so it needs the same permission the join code does.
         current = (await db.execute(select(User).where(User.id == current_user_id))).scalar_one()
+        # Someone whose request to join is still pending has this workspace
+        # open but is not in it; without this they could let others in.
+        await require_active_membership(current, db)
         org_id = current.organization_id
         if not perms.effective_permissions(current, await perms.load_org(org_id, db))["invite_members"]:
             raise HTTPException(
@@ -582,6 +588,14 @@ async def create_workspace_for_me(
         raise HTTPException(status_code=400, detail="A workspace name is required.")
     if len(name) > 255:
         raise HTTPException(status_code=400, detail="That workspace name is too long.")
+    # Creating a workspace is signing up for one. With self-signup off, the
+    # server administrator decides who gets one; otherwise any member could
+    # do from here what the sign-up form refuses.
+    if not settings.ALLOW_SELF_SIGNUP and not await is_instance_admin(user.id, db):
+        raise HTTPException(
+            status_code=403,
+            detail="New workspaces are switched off on this server. Ask the server administrator.",
+        )
 
     # _create_workspace rolls the session back to retry a slug collision, and a
     # rollback expires every object loaded so far - including the `user` the

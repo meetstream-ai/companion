@@ -150,12 +150,17 @@ async def member_payload(user: User, db: AsyncSession) -> dict:
         )
     ).scalar_one_or_none()
     waiting = membership is not None and membership.status != "active"
+    from app.api.deps import is_instance_admin
+
     return {
         "id": str(user.id),
         "name": user.name,
         "email": user.email,
         "role": user.role,
         "permissions": perms.effective_permissions(user, org),
+        # Server-wide settings (AI, database, MeetStream, tunnel, agent
+        # template) belong to the server administrator, not every owner.
+        "can_manage_server": await is_instance_admin(user.id, db),
         "pending_approval": {"workspace": org.name if org else None} if waiting else None,
         # So Settings can say when the workspace's owner chose the AI for
         # everyone and this person's own AI settings do not apply here.

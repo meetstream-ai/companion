@@ -21,7 +21,7 @@ from app.database.connection import get_db
 from app.database.repositories import OrganizationRepository, UserRepository, MeetingRepository
 from app.models.database import User
 from app.services.meetstream import meetstream_client
-from app.api.deps import get_current_org_id, get_current_user, require_owner
+from app.api.deps import get_current_org_id, get_current_user, is_instance_admin, require_instance_admin, require_owner
 from app.mcp.auth import resolve_org_by_mcp_token
 from app.services.agents import (  # noqa: F401 - re-exported for existing importers
     DEFAULT_FIRST_MESSAGE,
@@ -217,10 +217,11 @@ async def set_meetstream_api_key(body: ApiKeyRequest, user: User = Depends(get_c
     # A key means bots are coming, and a bot's agent can only look anything
     # up if MeetStream can reach this server: start the automatic tunnel
     # unless an address is already set or someone chose otherwise. The
-    # tunnel is this machine's, so only an owner's key decides it.
+    # tunnel is this machine's, so only the server administrator's key
+    # decides it.
     from app.services.tunnel import switch_on_for_meetstream
 
-    tunnel_started = bool(user.role == "owner" and switch_on_for_meetstream())
+    tunnel_started = bool(user.role == "owner" and await is_instance_admin(user.id, db) and switch_on_for_meetstream())
     return {
         "meetstream_api_key": {"configured": True, "masked_value": _mask_secret(key)},
         "connected": connected,
@@ -451,8 +452,8 @@ async def read_agent_template(user: User = Depends(get_current_user)):
 
 
 @router.put("/template")
-async def update_agent_template(body: AgentTemplateUpdateRequest, user: User = Depends(require_owner)):
-    """Edit the template (owners only - it is shared by every workspace). Only fields present in the request change."""
+async def update_agent_template(body: AgentTemplateUpdateRequest, user: User = Depends(require_instance_admin)):
+    """Edit the template (server administrator only - it is shared by every workspace). Only fields present in the request change."""
     current = load_config().agent_template
     changes = body.model_dump(exclude_unset=True)
     merged = {**asdict(current), **changes}
