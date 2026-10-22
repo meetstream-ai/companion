@@ -51,6 +51,14 @@ python-dotenv==1.2.3
 # breaks against bcrypt 4.1+. app/security.py uses bcrypt directly.
 bcrypt==4.2.1
 
+# ---- Transitive security floors (MS-1821, Oct 2026) ----
+# Not imported directly. Floors so a rebuild (Docker image, desktop release)
+# cannot resolve to a vulnerable version. certifi 2026.10.19 removes the CA
+# roots tied to the compromised eMudhra intermediates.
+certifi>=2026.10.19
+anyio>=4.14.2
+orjson>=3.11.6
+
 # ---- Testing ----
 pytest==9.0.3
 pytest-asyncio==1.4.0
