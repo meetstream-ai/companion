@@ -36,7 +36,7 @@ numpy>=1.26.0
 # adding a provider a code change rather than a dependency change.
 
 # ---- Documents ----
-pypdf==6.21.2
+pypdf==6.21.4
 
 # ---- HTTP Client ----
 httpx==0.28.1
