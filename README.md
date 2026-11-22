@@ -146,6 +146,7 @@ Set from **Settings** in the app, saved to `data/config.json`. An **environment 
 | `MCP_SERVER_URL` | none | Public URL MeetStream reaches your server on |
 | `SETUP_TOKEN` | unset | `auto` on a server reachable before setup: the setup link is in the log |
 | `ALLOW_SELF_SIGNUP` | `true` | `false` on a public server: only owners add members |
+| `ALLOW_PRIVATE_LLM_BASE_URL` | `true` | `false` on a public server: workspace AI base URLs cannot reach private addresses |
 
 Every variable: [docs/configuration.md](docs/configuration.md).
 
